@@ -7,8 +7,8 @@ import { Stat } from '../components/Stat';
 import { formatDuration, formatKm, formatPace } from '../lib/format';
 import { colors, fonts } from '../theme';
 import {
-  FOREGROUND_ONLY,
   getActiveRun,
+  isForegroundTracking,
   resumeTrackingIfNeeded,
   startRun,
   stopRun,
@@ -23,11 +23,14 @@ export function RunScreen({ onSaved }: Props) {
   const [now, setNow] = useState(Date.now());
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [foreground, setForeground] = useState(false);
 
   // Lopende run ophalen (ook na herstart van de app) en live bijwerken.
   useEffect(() => {
     getActiveRun().then((r) => setRun(r ? { ...r } : null));
-    resumeTrackingIfNeeded().catch(console.warn);
+    resumeTrackingIfNeeded()
+      .then(() => setForeground(isForegroundTracking()))
+      .catch(console.warn);
     return subscribe((r) => setRun(r ? { ...r } : null));
   }, []);
 
@@ -41,12 +44,12 @@ export function RunScreen({ onSaved }: Props) {
 
   // In Expo Go meten we alleen met de app open: scherm aan houden.
   useEffect(() => {
-    if (!run || !FOREGROUND_ONLY) return;
+    if (!run || !foreground) return;
     activateKeepAwakeAsync('rondje-run');
     return () => {
       deactivateKeepAwake('rondje-run');
     };
-  }, [run?.startedAt]);
+  }, [run?.startedAt, foreground]);
 
   const running = run !== null;
   const elapsedSec = run ? (now - run.startedAt) / 1000 : 0;
@@ -59,8 +62,10 @@ export function RunScreen({ onSaved }: Props) {
     try {
       const result = await startRun();
       if (!result.ok) setMessage(result.reason);
+      else setForeground(result.foreground);
     } catch (e) {
-      setMessage('Starten lukte niet. Probeer het nog eens.');
+      const detail = e instanceof Error ? e.message : String(e);
+      setMessage(`Starten lukte niet. Probeer het nog eens.\n(${detail})`);
       console.warn(e);
     } finally {
       setBusy(false);
@@ -96,13 +101,17 @@ export function RunScreen({ onSaved }: Props) {
       <View style={styles.stats}>
         <Stat label="Afstand" value={formatKm(distanceM)} unit="km" large />
         <View style={styles.row}>
-          <Stat label="Tijd" value={formatDuration(elapsedSec)} />
-          <Stat label="Tempo" value={formatPace(distanceM, elapsedSec)} unit="/km" />
+          <View style={styles.cell}>
+            <Stat label="Tijd" value={formatDuration(elapsedSec)} />
+          </View>
+          <View style={styles.cell}>
+            <Stat label="Tempo" value={formatPace(distanceM, elapsedSec)} unit="/km" />
+          </View>
         </View>
       </View>
 
       {message ? <Text style={styles.message}>{message}</Text> : null}
-      {FOREGROUND_ONLY && running ? (
+      {foreground && running ? (
         <Text style={styles.hint}>Testmodus: houd de app open tijdens je run.</Text>
       ) : null}
 
@@ -132,6 +141,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1, paddingHorizontal: 24, paddingTop: 16, paddingBottom: 24 },
   stats: { flex: 1, justifyContent: 'center', gap: 32 },
   row: { flexDirection: 'row', gap: 16 },
+  cell: { flex: 1 },
   message: {
     fontFamily: fonts.tekst,
     fontSize: 15,

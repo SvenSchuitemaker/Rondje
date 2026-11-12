@@ -19,7 +19,7 @@ export function Stat({ label, value, unit, large }: Props) {
 }
 
 const styles = StyleSheet.create({
-  wrap: { flex: 1 },
+  wrap: {},
   label: {
     fontFamily: fonts.tekstMedium,
     fontSize: 13,
