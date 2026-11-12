@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { isRunningInExpoGo } from 'expo';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 
@@ -10,6 +11,18 @@ const ACTIVE_KEY = 'rondje:active-run';
 
 /** Punten met een onnauwkeurigheid boven deze waarde (meters) negeren we. */
 export const MAX_ACCURACY_M = 30;
+
+/**
+ * In Expo Go werkt achtergrondlocatie niet op iOS. Daar meten we alleen
+ * zolang de app open is (watchPositionAsync) en houden we het scherm aan.
+ */
+export const FOREGROUND_ONLY = isRunningInExpoGo();
+let foregroundWatch: Location.LocationSubscription | null = null;
+
+const TRACKING_OPTIONS = {
+  accuracy: Location.Accuracy.BestForNavigation,
+  distanceInterval: 5,
+} as const;
 
 export type ActiveRun = {
   startedAt: number;
@@ -65,13 +78,16 @@ export function getActiveRun(): Promise<ActiveRun | null> {
 
 type LocationTaskData = { locations: Location.LocationObject[] };
 
-TaskManager.defineTask<LocationTaskData>(LOCATION_TASK, async ({ data, error }) => {
-  if (error) {
-    console.warn('[rondje] locatietaak:', error.message);
-    return;
-  }
-  if (data?.locations?.length) await addLocations(data.locations);
-});
+// In Expo Go is er geen achtergrondtaak; daar gebruiken we watchPositionAsync.
+if (!FOREGROUND_ONLY) {
+  TaskManager.defineTask<LocationTaskData>(LOCATION_TASK, async ({ data, error }) => {
+    if (error) {
+      console.warn('[rondje] locatietaak:', error.message);
+      return;
+    }
+    if (data?.locations?.length) await addLocations(data.locations);
+  });
+}
 
 export function addLocations(locations: Location.LocationObject[]): Promise<void> {
   return serial(async () => {
@@ -96,6 +112,24 @@ export function addLocations(locations: Location.LocationObject[]): Promise<void
   });
 }
 
+/** Herstart de voorgrondmeting als de app opnieuw opent tijdens een run (Expo Go). */
+export async function resumeTrackingIfNeeded(): Promise<void> {
+  if (!FOREGROUND_ONLY || foregroundWatch) return;
+  if (!(await getActiveRun())) return;
+  foregroundWatch = await Location.watchPositionAsync(TRACKING_OPTIONS, (loc) => {
+    addLocations([loc]);
+  });
+}
+
+async function stopTracking(): Promise<void> {
+  foregroundWatch?.remove();
+  foregroundWatch = null;
+  if (FOREGROUND_ONLY) return;
+  if (await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK)) {
+    await Location.stopLocationUpdatesAsync(LOCATION_TASK);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Start / stop
 // ---------------------------------------------------------------------------
@@ -107,12 +141,14 @@ export async function startRun(): Promise<StartResult> {
   if (fg.status !== 'granted') {
     return { ok: false, reason: 'Zonder locatie kunnen we je rondje niet meten. Zet het aan in Instellingen.' };
   }
-  const bg = await Location.requestBackgroundPermissionsAsync();
-  if (bg.status !== 'granted') {
-    return {
-      ok: false,
-      reason: 'Kies "Altijd" bij locatietoegang, dan loopt de meting door als je scherm uit staat.',
-    };
+  if (!FOREGROUND_ONLY) {
+    const bg = await Location.requestBackgroundPermissionsAsync();
+    if (bg.status !== 'granted') {
+      return {
+        ok: false,
+        reason: 'Kies "Altijd" bij locatietoegang, dan loopt de meting door als je scherm uit staat.',
+      };
+    }
   }
 
   await serial(async () => {
@@ -121,12 +157,15 @@ export async function startRun(): Promise<StartResult> {
     await persist();
   });
 
-  if (await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK)) {
-    await Location.stopLocationUpdatesAsync(LOCATION_TASK);
+  await stopTracking();
+  if (FOREGROUND_ONLY) {
+    foregroundWatch = await Location.watchPositionAsync(TRACKING_OPTIONS, (loc) => {
+      addLocations([loc]);
+    });
+    return { ok: true };
   }
   await Location.startLocationUpdatesAsync(LOCATION_TASK, {
-    accuracy: Location.Accuracy.BestForNavigation,
-    distanceInterval: 5,
+    ...TRACKING_OPTIONS,
     activityType: Location.ActivityType.Fitness,
     pausesUpdatesAutomatically: false,
     showsBackgroundLocationIndicator: true,
@@ -136,9 +175,7 @@ export async function startRun(): Promise<StartResult> {
 
 /** Stopt de meting en slaat de run op. Geeft de opgeslagen run terug (of null). */
 export async function stopRun(): Promise<Run | null> {
-  if (await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK)) {
-    await Location.stopLocationUpdatesAsync(LOCATION_TASK);
-  }
+  await stopTracking();
 
   return serial(async () => {
     await ensureLoaded();
