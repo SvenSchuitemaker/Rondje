@@ -114,18 +114,16 @@ export function addLocations(locations: Location.LocationObject[]): Promise<void
 
 /** Herstart de voorgrondmeting als de app opnieuw opent tijdens een run (Expo Go). */
 export async function resumeTrackingIfNeeded(): Promise<void> {
-  if (!FOREGROUND_ONLY || foregroundWatch) return;
-  if (!(await getActiveRun())) return;
-  foregroundWatch = await Location.watchPositionAsync(TRACKING_OPTIONS, (loc) => {
-    addLocations([loc]);
-  });
+  if (foregroundWatch || !(await getActiveRun())) return;
+  if (!FOREGROUND_ONLY && (await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK))) return;
+  await startForegroundWatch();
 }
 
 async function stopTracking(): Promise<void> {
   foregroundWatch?.remove();
   foregroundWatch = null;
   if (FOREGROUND_ONLY) return;
-  if (await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK)) {
+  if (await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK).catch(() => false)) {
     await Location.stopLocationUpdatesAsync(LOCATION_TASK);
   }
 }
@@ -134,7 +132,18 @@ async function stopTracking(): Promise<void> {
 // Start / stop
 // ---------------------------------------------------------------------------
 
-export type StartResult = { ok: true } | { ok: false; reason: string };
+export type StartResult = { ok: true; foreground: boolean } | { ok: false; reason: string };
+
+async function startForegroundWatch(): Promise<void> {
+  foregroundWatch = await Location.watchPositionAsync(TRACKING_OPTIONS, (loc) => {
+    addLocations([loc]);
+  });
+}
+
+/** Of de huidige run alleen op de voorgrond gemeten wordt. */
+export function isForegroundTracking(): boolean {
+  return foregroundWatch !== null;
+}
 
 export async function startRun(): Promise<StartResult> {
   const fg = await Location.requestForegroundPermissionsAsync();
@@ -151,26 +160,36 @@ export async function startRun(): Promise<StartResult> {
     }
   }
 
+  await stopTracking();
+  try {
+    if (FOREGROUND_ONLY) {
+      await startForegroundWatch();
+    } else {
+      try {
+        await Location.startLocationUpdatesAsync(LOCATION_TASK, {
+          ...TRACKING_OPTIONS,
+          activityType: Location.ActivityType.Fitness,
+          pausesUpdatesAutomatically: false,
+          showsBackgroundLocationIndicator: true,
+        });
+      } catch (e) {
+        // Achtergrond niet beschikbaar: dan in elk geval meten zolang de app open is.
+        console.warn('[rondje] achtergrondlocatie niet beschikbaar, val terug op voorgrond:', e);
+        await startForegroundWatch();
+      }
+    }
+  } catch (e) {
+    await stopTracking();
+    throw e;
+  }
+
+  // Run pas aanmaken als de meting echt loopt.
   await serial(async () => {
     await ensureLoaded();
     active = { startedAt: Date.now(), distanceM: 0, points: [] };
     await persist();
   });
-
-  await stopTracking();
-  if (FOREGROUND_ONLY) {
-    foregroundWatch = await Location.watchPositionAsync(TRACKING_OPTIONS, (loc) => {
-      addLocations([loc]);
-    });
-    return { ok: true };
-  }
-  await Location.startLocationUpdatesAsync(LOCATION_TASK, {
-    ...TRACKING_OPTIONS,
-    activityType: Location.ActivityType.Fitness,
-    pausesUpdatesAutomatically: false,
-    showsBackgroundLocationIndicator: true,
-  });
-  return { ok: true };
+  return { ok: true, foreground: isForegroundTracking() };
 }
 
 /** Stopt de meting en slaat de run op. Geeft de opgeslagen run terug (of null). */
