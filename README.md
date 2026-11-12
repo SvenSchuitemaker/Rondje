@@ -16,7 +16,24 @@ app/                  Expo-project
 supabase/schema.sql   Tabellen + row level security voor later
 ```
 
-## App draaien vanaf Windows (zonder Mac)
+## Snel testen met Expo Go (gratis, Windows + iPhone)
+
+Geen Mac en geen Apple Developer-account nodig.
+
+1. Installeer **Expo Go** uit de App Store op je iPhone.
+2. Op je laptop:
+   ```powershell
+   cd app
+   npm install
+   npx expo start --go
+   ```
+3. Scan de QR-code met de Camera-app van je iPhone. Laptop en iPhone moeten op hetzelfde wifi-netwerk zitten
+   (lukt dat niet: `npx expo start --go --tunnel`).
+
+**Beperking:** Expo Go kan op iOS geen locatie op de achtergrond bijhouden. In Expo Go meet Rondje daarom alleen
+zolang de app open is en houdt het scherm aan tijdens een run. Voor meten met je scherm uit is een eigen build nodig (hieronder).
+
+## Eigen build vanaf Windows (achtergrondlocatie)
 
 De iOS-app wordt in de cloud gebouwd met EAS Build en daarna op je iPhone gezet.
 Expo Go is niet genoeg: de app gebruikt achtergrondlocatie en heeft een eigen build nodig.

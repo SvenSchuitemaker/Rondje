@@ -1,3 +1,4 @@
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -5,7 +6,15 @@ import { Brand } from '../components/Brand';
 import { Stat } from '../components/Stat';
 import { formatDuration, formatKm, formatPace } from '../lib/format';
 import { colors, fonts } from '../theme';
-import { getActiveRun, startRun, stopRun, subscribe, type ActiveRun } from '../tracking/runTracker';
+import {
+  FOREGROUND_ONLY,
+  getActiveRun,
+  resumeTrackingIfNeeded,
+  startRun,
+  stopRun,
+  subscribe,
+  type ActiveRun,
+} from '../tracking/runTracker';
 
 type Props = { onSaved: () => void };
 
@@ -18,6 +27,7 @@ export function RunScreen({ onSaved }: Props) {
   // Lopende run ophalen (ook na herstart van de app) en live bijwerken.
   useEffect(() => {
     getActiveRun().then((r) => setRun(r ? { ...r } : null));
+    resumeTrackingIfNeeded().catch(console.warn);
     return subscribe((r) => setRun(r ? { ...r } : null));
   }, []);
 
@@ -27,6 +37,15 @@ export function RunScreen({ onSaved }: Props) {
     setNow(Date.now());
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
+  }, [run?.startedAt]);
+
+  // In Expo Go meten we alleen met de app open: scherm aan houden.
+  useEffect(() => {
+    if (!run || !FOREGROUND_ONLY) return;
+    activateKeepAwakeAsync('rondje-run');
+    return () => {
+      deactivateKeepAwake('rondje-run');
+    };
   }, [run?.startedAt]);
 
   const running = run !== null;
@@ -83,6 +102,9 @@ export function RunScreen({ onSaved }: Props) {
       </View>
 
       {message ? <Text style={styles.message}>{message}</Text> : null}
+      {FOREGROUND_ONLY && running ? (
+        <Text style={styles.hint}>Testmodus: houd de app open tijdens je run.</Text>
+      ) : null}
 
       <Pressable
         onPress={running ? handleStop : handleStart}
@@ -119,6 +141,14 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 16,
     overflow: 'hidden',
+  },
+  hint: {
+    fontFamily: fonts.tekst,
+    fontSize: 13,
+    color: colors.nachtblauw,
+    opacity: 0.6,
+    textAlign: 'center',
+    marginBottom: 12,
   },
   button: {
     height: 72,
