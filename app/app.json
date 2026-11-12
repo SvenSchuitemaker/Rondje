@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "Rondje",
+    "slug": "rondje",
+    "scheme": "rondje",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "platforms": [
+      "ios"
+    ],
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0F1B2D"
+    },
+    "ios": {
+      "bundleIdentifier": "nl.rondje.app",
+      "supportsTablet": false,
+      "infoPlist": {
+        "CFBundleDevelopmentRegion": "nl"
+      }
+    },
+    "plugins": [
+      "expo-font",
+      "expo-task-manager",
+      [
+        "expo-location",
+        {
+          "isIosBackgroundLocationEnabled": true,
+          "locationWhenInUsePermission": "Rondje gebruikt je locatie om je afstand, tijd en tempo bij te houden tijdens je run.",
+          "locationAlwaysAndWhenInUsePermission": "Rondje gebruikt je locatie ook als je scherm uit staat, zodat je hele rondje wordt vastgelegd.",
+          "locationAlwaysPermission": "Rondje gebruikt je locatie ook als je scherm uit staat, zodat je hele rondje wordt vastgelegd.",
+          "motionUsagePermission": false
+        }
+      ]
+    ]
+  }
+}
