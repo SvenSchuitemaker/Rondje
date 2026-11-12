@@ -4,11 +4,17 @@ import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native
 import { Brand } from '../components/Brand';
 import { formatDate, formatDuration, formatKm, formatPace } from '../lib/format';
 import { deleteRun, loadRuns, type Run } from '../lib/storage';
+import { RunDetailScreen } from './RunDetailScreen';
 import { colors, fonts } from '../theme';
 
-type Props = { visible: boolean; refreshKey: number };
+type Props = {
+  visible: boolean;
+  refreshKey: number;
+  openRunId: string | null;
+  onOpenRun: (id: string | null) => void;
+};
 
-export function HistoryScreen({ visible, refreshKey }: Props) {
+export function HistoryScreen({ visible, refreshKey, openRunId, onOpenRun }: Props) {
   const [runs, setRuns] = useState<Run[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -21,6 +27,7 @@ export function HistoryScreen({ visible, refreshKey }: Props) {
   }, [visible, refreshKey, reload]);
 
   const totalM = runs.reduce((sum, r) => sum + r.distanceM, 0);
+  const openRun = openRunId ? runs.find((r) => r.id === openRunId) : undefined;
 
   function confirmDelete(run: Run) {
     Alert.alert('Run verwijderen?', formatDate(run.startedAt), [
@@ -34,6 +41,19 @@ export function HistoryScreen({ visible, refreshKey }: Props) {
         },
       },
     ]);
+  }
+
+  if (openRun) {
+    return (
+      <RunDetailScreen
+        run={openRun}
+        onBack={() => onOpenRun(null)}
+        onDeleted={() => {
+          onOpenRun(null);
+          reload();
+        }}
+      />
+    );
   }
 
   return (
@@ -69,7 +89,11 @@ export function HistoryScreen({ visible, refreshKey }: Props) {
         }
         ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
         renderItem={({ item }) => (
-          <Pressable onLongPress={() => confirmDelete(item)} style={styles.card}>
+          <Pressable
+            onPress={() => onOpenRun(item.id)}
+            onLongPress={() => confirmDelete(item)}
+            style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+          >
             <Text style={styles.date}>{formatDate(item.startedAt)}</Text>
             <View style={styles.cardRow}>
               <Cell value={formatKm(item.distanceM)} unit="km" />
@@ -121,6 +145,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.ochtendmist,
   },
+  cardPressed: { backgroundColor: colors.ochtendmist },
   date: { fontFamily: fonts.tekstMedium, fontSize: 13, color: colors.nachtblauw, opacity: 0.6 },
   cardRow: { flexDirection: 'row', marginTop: 8 },
   cell: { flex: 1 },

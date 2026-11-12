@@ -20,6 +20,7 @@ export default function App() {
   });
   const [tab, setTab] = useState<TabKey>('run');
   const [historyVersion, setHistoryVersion] = useState(0);
+  const [openRunId, setOpenRunId] = useState<string | null>(null);
 
   if (!fontsLoaded) return <View style={styles.root} />;
 
@@ -30,13 +31,31 @@ export default function App() {
         <SafeAreaView style={styles.content} edges={['top']}>
           {/* Beide schermen blijven gemount, zodat een lopende run niet herstart. */}
           <View style={[styles.content, tab !== 'run' && styles.hidden]}>
-            <RunScreen onSaved={() => setHistoryVersion((v) => v + 1)} />
+            <RunScreen
+              onSaved={() => setHistoryVersion((v) => v + 1)}
+              onOpenRun={(id) => {
+                setOpenRunId(id);
+                setTab('geschiedenis');
+              }}
+            />
           </View>
           <View style={[styles.content, tab !== 'geschiedenis' && styles.hidden]}>
-            <HistoryScreen visible={tab === 'geschiedenis'} refreshKey={historyVersion} />
+            <HistoryScreen
+              visible={tab === 'geschiedenis'}
+              refreshKey={historyVersion}
+              openRunId={openRunId}
+              onOpenRun={setOpenRunId}
+            />
           </View>
         </SafeAreaView>
-        <TabBar active={tab} onChange={setTab} />
+        <TabBar
+          active={tab}
+          onChange={(key) => {
+            // Nogmaals op Geschiedenis tikken brengt je terug naar de lijst.
+            if (key === 'geschiedenis' && tab === 'geschiedenis') setOpenRunId(null);
+            setTab(key);
+          }}
+        />
       </View>
     </SafeAreaProvider>
   );

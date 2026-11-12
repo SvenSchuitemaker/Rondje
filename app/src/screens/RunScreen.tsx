@@ -1,14 +1,21 @@
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { Alert, StyleSheet, Text, View } from 'react-native';
 
 import { Brand } from '../components/Brand';
+import { Button } from '../components/Button';
+import { RunSummary } from '../components/RunSummary';
 import { Stat } from '../components/Stat';
 import { formatDuration, formatKm, formatPace } from '../lib/format';
+import { computeSplits } from '../lib/run';
+import type { Run } from '../lib/storage';
 import { colors, fonts } from '../theme';
 import {
+  elapsedSeconds,
   getActiveRun,
   isForegroundTracking,
+  pauseRun,
+  resumeRun,
   resumeTrackingIfNeeded,
   startRun,
   stopRun,
@@ -16,14 +23,15 @@ import {
   type ActiveRun,
 } from '../tracking/runTracker';
 
-type Props = { onSaved: () => void };
+type Props = { onSaved: () => void; onOpenRun: (id: string) => void };
 
-export function RunScreen({ onSaved }: Props) {
+export function RunScreen({ onSaved, onOpenRun }: Props) {
   const [run, setRun] = useState<ActiveRun | null>(null);
   const [now, setNow] = useState(Date.now());
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [foreground, setForeground] = useState(false);
+  const [summary, setSummary] = useState<Run | null>(null);
 
   // Lopende run ophalen (ook na herstart van de app) en live bijwerken.
   useEffect(() => {
@@ -34,13 +42,15 @@ export function RunScreen({ onSaved }: Props) {
     return subscribe((r) => setRun(r ? { ...r } : null));
   }, []);
 
-  // Klok laten tikken zolang er een run loopt.
+  const paused = run?.pausedAt != null;
+
+  // Klok laten tikken zolang er een run loopt (niet tijdens pauze).
   useEffect(() => {
-    if (!run) return;
+    if (!run || paused) return;
     setNow(Date.now());
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [run?.startedAt]);
+  }, [run?.startedAt, paused]);
 
   // In Expo Go meten we alleen met de app open: scherm aan houden.
   useEffect(() => {
@@ -51,10 +61,35 @@ export function RunScreen({ onSaved }: Props) {
     };
   }, [run?.startedAt, foreground]);
 
+  const pointCount = run?.points.length ?? 0;
+  const splits = useMemo(
+    () => (run ? computeSplits(run.points, run.startedAt, run.pauses) : []),
+    // Alleen opnieuw rekenen als er punten bijkomen of de pauzes veranderen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pointCount, run?.startedAt, run?.pauses.length],
+  );
+
+  if (summary) {
+    return (
+      <RunSummary
+        run={summary}
+        onClose={() => setSummary(null)}
+        onOpen={() => {
+          setSummary(null);
+          onOpenRun(summary.id);
+        }}
+      />
+    );
+  }
+
   const running = run !== null;
-  const elapsedSec = run ? (now - run.startedAt) / 1000 : 0;
+  const elapsedSec = run ? elapsedSeconds(run, paused ? run.pausedAt! : now) : 0;
   const distanceM = run?.distanceM ?? 0;
-  const hasFix = (run?.points.length ?? 0) > 0;
+  const hasFix = pointCount > 0;
+  const recentSplits = splits.slice(-3);
+
+  let subtitle = 'Elk rondje telt.';
+  if (running) subtitle = paused ? 'Gepauzeerd. Adem even uit.' : hasFix ? 'Je bent onderweg.' : 'GPS zoeken…';
 
   async function handleStart() {
     setBusy(true);
@@ -77,7 +112,8 @@ export function RunScreen({ onSaved }: Props) {
     try {
       const saved = await stopRun();
       if (saved) {
-        setMessage(`Lekker gelopen. ${formatKm(saved.distanceM)} km staat erin.`);
+        setMessage(null);
+        setSummary(saved);
         onSaved();
       } else {
         setMessage('Te kort om op te slaan. Volgende keer verder.');
@@ -96,7 +132,7 @@ export function RunScreen({ onSaved }: Props) {
 
   return (
     <View style={styles.screen}>
-      <Brand subtitle={running ? (hasFix ? 'Je bent onderweg.' : 'GPS zoeken…') : 'Elk rondje telt.'} />
+      <Brand subtitle={subtitle} />
 
       <View style={styles.stats}>
         <Stat label="Afstand" value={formatKm(distanceM)} unit="km" large />
@@ -108,6 +144,17 @@ export function RunScreen({ onSaved }: Props) {
             <Stat label="Tempo" value={formatPace(distanceM, elapsedSec)} unit="/km" />
           </View>
         </View>
+
+        {recentSplits.length > 0 ? (
+          <View style={styles.splits}>
+            {recentSplits.map((s) => (
+              <View key={s.km} style={styles.chip}>
+                <Text style={styles.chipKm}>km {s.km}</Text>
+                <Text style={styles.chipPace}>{formatPace(s.distanceM, s.durationSec)}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
       </View>
 
       {message ? <Text style={styles.message}>{message}</Text> : null}
@@ -115,24 +162,19 @@ export function RunScreen({ onSaved }: Props) {
         <Text style={styles.hint}>Testmodus: houd de app open tijdens je run.</Text>
       ) : null}
 
-      <Pressable
-        onPress={running ? handleStop : handleStart}
-        disabled={busy}
-        style={({ pressed }) => [
-          styles.button,
-          running && styles.buttonStop,
-          (pressed || busy) && styles.buttonPressed,
-        ]}
-        accessibilityRole="button"
-      >
-        {busy ? (
-          <ActivityIndicator color={running ? colors.papier : colors.nachtblauw} />
-        ) : (
-          <Text style={[styles.buttonText, running && styles.buttonTextStop]}>
-            {running ? 'Stop' : 'Start'}
-          </Text>
-        )}
-      </Pressable>
+      {!running ? (
+        <Button label="Start" onPress={handleStart} busy={busy} />
+      ) : (
+        <View style={styles.buttons}>
+          <Button
+            label={paused ? 'Hervat' : 'Pauze'}
+            variant={paused ? 'primary' : 'light'}
+            onPress={() => (paused ? resumeRun() : pauseRun())}
+            style={styles.flex}
+          />
+          <Button label="Stop" variant="dark" onPress={handleStop} busy={busy} style={styles.flex} />
+        </View>
+      )}
     </View>
   );
 }
@@ -142,6 +184,23 @@ const styles = StyleSheet.create({
   stats: { flex: 1, justifyContent: 'center', gap: 32 },
   row: { flexDirection: 'row', gap: 16 },
   cell: { flex: 1 },
+  flex: { flex: 1 },
+  splits: { flexDirection: 'row', gap: 8 },
+  chip: {
+    flex: 1,
+    backgroundColor: colors.ochtendmist,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  chipKm: { fontFamily: fonts.tekstMedium, fontSize: 12, color: colors.nachtblauw, opacity: 0.6 },
+  chipPace: {
+    fontFamily: fonts.kop,
+    fontSize: 18,
+    color: colors.nachtblauw,
+    fontVariant: ['tabular-nums'],
+  },
+  buttons: { flexDirection: 'row', gap: 12 },
   message: {
     fontFamily: fonts.tekst,
     fontSize: 15,
@@ -160,15 +219,4 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 12,
   },
-  button: {
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: colors.sprintoranje,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  buttonStop: { backgroundColor: colors.nachtblauw },
-  buttonPressed: { opacity: 0.8 },
-  buttonText: { fontFamily: fonts.kop, fontSize: 24, color: colors.nachtblauw, letterSpacing: 0.5 },
-  buttonTextStop: { color: colors.papier },
 });
