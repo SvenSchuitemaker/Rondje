@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type { Point } from './geo';
+import type { Pause } from './run';
 
 export type Run = {
   id: string;
@@ -9,6 +10,7 @@ export type Run = {
   durationSec: number;
   distanceM: number;
   points: Point[];
+  pauses?: Pause[];
   source: 'own_gps';
 };
 
@@ -33,4 +35,9 @@ export async function saveRun(run: Run): Promise<void> {
 export async function deleteRun(id: string): Promise<void> {
   const runs = await loadRuns();
   await AsyncStorage.setItem(RUNS_KEY, JSON.stringify(runs.filter((r) => r.id !== id)));
+}
+
+export async function getRun(id: string): Promise<Run | null> {
+  const runs = await loadRuns();
+  return runs.find((r) => r.id === id) ?? null;
 }

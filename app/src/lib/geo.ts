@@ -4,6 +4,8 @@ export type Point = {
   timestamp: number;
   accuracy: number | null;
   altitude: number | null;
+  /** Deel van de run tussen twee pauzes. Over een pauze heen tellen we geen afstand. */
+  segment?: number;
 };
 
 const EARTH_RADIUS_M = 6_371_000;

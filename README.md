@@ -93,6 +93,9 @@ Locatie testen in de simulator: *Features → Location → City Run*.
 - Afstand via haversine tussen opeenvolgende punten
 - De lopende run staat in AsyncStorage, zodat hij een herstart van de app overleeft
 - Runs korter dan 10 m worden niet opgeslagen
+- Pauze: GPS blijft aan, maar punten tellen niet mee; over een pauze heen wordt geen afstand opgeteld
+- Tijd per km: het moment van elke kilometergrens wordt geïnterpoleerd tussen de twee GPS-punten eromheen, zonder pauzetijd
+- Route op de kaart met `react-native-maps` (Apple Maps, geen API-sleutel nodig)
 
 ## Supabase
 

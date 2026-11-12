@@ -4,6 +4,7 @@ import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 
 import { haversine, type Point } from '../lib/geo';
+import { activeSeconds, type Pause } from '../lib/run';
 import { saveRun, type Run } from '../lib/storage';
 
 export const LOCATION_TASK = 'rondje-location-task';
@@ -28,7 +29,18 @@ export type ActiveRun = {
   startedAt: number;
   distanceM: number;
   points: Point[];
+  /** Afgeronde pauzes. */
+  pauses: Pause[];
+  /** Begin van de huidige pauze, of null als de run loopt. */
+  pausedAt: number | null;
+  /** Huidig segment; gaat één omhoog na elke pauze. */
+  segment: number;
 };
+
+/** Gelopen seconden van een actieve run tot nu, zonder pauzes. */
+export function elapsedSeconds(run: ActiveRun, now = Date.now()): number {
+  return activeSeconds(run.startedAt, now, run.pauses, run.pausedAt);
+}
 
 // ---------------------------------------------------------------------------
 // Staat: in het geheugen gespiegeld en in AsyncStorage bewaard, zodat een run
@@ -50,7 +62,18 @@ function serial<T>(fn: () => Promise<T>): Promise<T> {
 async function ensureLoaded(): Promise<void> {
   if (loaded) return;
   const raw = await AsyncStorage.getItem(ACTIVE_KEY);
-  active = raw ? (JSON.parse(raw) as ActiveRun) : null;
+  const parsed = raw ? (JSON.parse(raw) as Partial<ActiveRun>) : null;
+  // Runs van een oudere versie hebben nog geen pauzevelden.
+  active = parsed
+    ? {
+        startedAt: parsed.startedAt ?? Date.now(),
+        distanceM: parsed.distanceM ?? 0,
+        points: parsed.points ?? [],
+        pauses: parsed.pauses ?? [],
+        pausedAt: parsed.pausedAt ?? null,
+        segment: parsed.segment ?? 0,
+      }
+    : null;
   loaded = true;
 }
 
@@ -92,7 +115,7 @@ if (!FOREGROUND_ONLY) {
 export function addLocations(locations: Location.LocationObject[]): Promise<void> {
   return serial(async () => {
     await ensureLoaded();
-    if (!active) return;
+    if (!active || active.pausedAt != null) return;
 
     let changed = false;
     for (const loc of locations) {
@@ -103,8 +126,9 @@ export function addLocations(locations: Location.LocationObject[]): Promise<void
       const last = active.points[active.points.length - 1];
       if (last && loc.timestamp <= last.timestamp) continue;
 
-      const point: Point = { latitude, longitude, accuracy, altitude, timestamp: loc.timestamp };
-      if (last) active.distanceM += haversine(last, point);
+      const segment = active.segment;
+      const point: Point = { latitude, longitude, accuracy, altitude, timestamp: loc.timestamp, segment };
+      if (last && (last.segment ?? 0) === segment) active.distanceM += haversine(last, point);
       active.points.push(point);
       changed = true;
     }
@@ -186,10 +210,31 @@ export async function startRun(): Promise<StartResult> {
   // Run pas aanmaken als de meting echt loopt.
   await serial(async () => {
     await ensureLoaded();
-    active = { startedAt: Date.now(), distanceM: 0, points: [] };
+    active = { startedAt: Date.now(), distanceM: 0, points: [], pauses: [], pausedAt: null, segment: 0 };
     await persist();
   });
   return { ok: true, foreground: isForegroundTracking() };
+}
+
+/** Pauzeren: GPS blijft aan (sneller weer een fix), maar punten tellen niet mee. */
+export function pauseRun(): Promise<void> {
+  return serial(async () => {
+    await ensureLoaded();
+    if (!active || active.pausedAt != null) return;
+    active.pausedAt = Date.now();
+    await persist();
+  });
+}
+
+export function resumeRun(): Promise<void> {
+  return serial(async () => {
+    await ensureLoaded();
+    if (!active || active.pausedAt == null) return;
+    active.pauses.push({ start: active.pausedAt, end: Date.now() });
+    active.pausedAt = null;
+    active.segment += 1;
+    await persist();
+  });
 }
 
 /** Stopt de meting en slaat de run op. Geeft de opgeslagen run terug (of null). */
@@ -200,13 +245,18 @@ export async function stopRun(): Promise<Run | null> {
     await ensureLoaded();
     if (!active) return null;
     const endedAt = Date.now();
+    const pauses =
+      active.pausedAt != null
+        ? [...active.pauses, { start: active.pausedAt, end: endedAt }]
+        : active.pauses;
     const run: Run = {
       id: `${active.startedAt}`,
       startedAt: active.startedAt,
       endedAt,
-      durationSec: Math.round((endedAt - active.startedAt) / 1000),
+      durationSec: Math.round(activeSeconds(active.startedAt, endedAt, pauses)),
       distanceM: active.distanceM,
       points: active.points,
+      pauses,
       source: 'own_gps',
     };
     active = null;
