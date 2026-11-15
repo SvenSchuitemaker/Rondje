@@ -97,8 +97,50 @@ Locatie testen in de simulator: *Features → Location → City Run*.
 - Tijd per km: het moment van elke kilometergrens wordt geïnterpoleerd tussen de twee GPS-punten eromheen, zonder pauzetijd
 - Route op de kaart met `react-native-maps` (Apple Maps, geen API-sleutel nodig)
 
-## Supabase
+## Supabase (account en synchronisatie)
 
-`supabase/schema.sql` bevat `profiles`, `activities` (met `source`: `own_gps`, `apple_health`, `garmin`, `fit_import`
-en uniek op `user_id + source + external_id`) en `activity_points`, met row level security zodat iedere gebruiker alleen eigen data ziet.
-Uitvoeren in de SQL-editor van je Supabase-project. De app gebruikt dit in fase 1 nog niet.
+Zonder Supabase werkt de app gewoon, maar dan staan je runs alleen op je telefoon.
+Met Supabase log je in met een code per e-mail en worden je runs automatisch opgeslagen en opgehaald.
+
+**1. Project aanmaken**
+
+1. Maak een gratis project aan op supabase.com.
+2. Open de **SQL Editor**, plak de inhoud van `supabase/schema.sql` en klik op *Run*.
+   Had je `schema.sql` al eerder uitgevoerd? Voer dan alleen `supabase/migrations/002_pauzes_en_segmenten.sql` uit.
+
+**2. Inlogcode in de e-mail zetten**
+
+Standaard stuurt Supabase een inloglink. Rondje werkt met een code, want links openen niet goed in Expo Go.
+
+1. Ga naar *Authentication → Emails* (of *Email Templates*) en open **Magic Link**.
+2. Zet in de tekst de code erbij, bijvoorbeeld:
+   ```html
+   <h2>Je inlogcode voor rondje</h2>
+   <p>Vul deze code in de app in: <strong>{{ .Token }}</strong></p>
+   ```
+3. Doe hetzelfde bij **Confirm signup**. Die mail krijg je de eerste keer dat je inlogt.
+
+Let op: de ingebouwde mailserver van Supabase verstuurt maar een paar e-mails per uur. Voor testen is dat genoeg.
+
+**3. Gegevens in de app zetten**
+
+Kopieer `app/.env.example` naar `app/.env.local` en vul in:
+
+```
+EXPO_PUBLIC_SUPABASE_URL=https://<jouw-project>.supabase.co
+EXPO_PUBLIC_SUPABASE_KEY=<publishable key of anon key>
+```
+
+Beide staan in Supabase onder *Project Settings → API* (of de knop *Connect*).
+Dit is de publieke sleutel: veilig om in de app te zetten, de beveiliging zit in row level security.
+Gebruik **nooit** de `service_role`- of secret key. `.env.local` staat in `.gitignore` en komt niet in git.
+
+Start daarna opnieuw met `npx expo start --go --clear` en log in via de tab **Account**.
+
+**Hoe het synchroniseren werkt**
+
+- Na inloggen, na elke opgeslagen run en als je de app opent, of met *Nu synchroniseren*
+- Nieuwe lokale runs gaan naar `activities` en `activity_points` (uniek op gebruiker + bron + `external_id`, dus nooit dubbel)
+- Runs die alleen in Supabase staan, bijvoorbeeld na een herinstallatie, worden opgehaald
+- Een verwijderde run wordt ook uit Supabase verwijderd, zodra er weer verbinding is
+- Row level security zorgt dat iedere gebruiker alleen eigen data ziet
