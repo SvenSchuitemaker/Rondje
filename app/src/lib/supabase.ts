@@ -4,13 +4,15 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { AppState } from 'react-native';
 
-const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
-const key = process.env.EXPO_PUBLIC_SUPABASE_KEY;
+// Publieke gegevens van het Rondje-project. De publishable key mag in de app staan:
+// de beveiliging zit in row level security. Overschrijfbaar via app/.env.local.
+const DEFAULT_URL = 'https://qgeudipvgwnwekdtyecj.supabase.co';
+const DEFAULT_KEY = 'sb_publishable_LC4trHoUoHnYhdqR7XvEzA_oiiKOM39';
 
-/**
- * Null als er geen Supabase-gegevens in app/.env.local staan.
- * De app werkt dan gewoon lokaal, zonder account.
- */
+const url = process.env.EXPO_PUBLIC_SUPABASE_URL || DEFAULT_URL;
+const key = process.env.EXPO_PUBLIC_SUPABASE_KEY || DEFAULT_KEY;
+
+/** Null als er geen Supabase-gegevens zijn; de app werkt dan alleen lokaal. */
 export const supabase: SupabaseClient | null =
   url && key
     ? createClient(url, key, {

@@ -12,7 +12,7 @@ import {
 
 import { Brand } from '../components/Brand';
 import { Button } from '../components/Button';
-import { sendCode, signOut, verifyCode } from '../lib/auth';
+import { MIN_PASSWORD_LENGTH, signIn, signOut, signUp } from '../lib/auth';
 import { supabase } from '../lib/supabase';
 import { colors, fonts } from '../theme';
 
@@ -53,99 +53,81 @@ function NotConfigured() {
     <View style={styles.card}>
       <Text style={styles.title}>Nog niet gekoppeld</Text>
       <Text style={styles.text}>
-        Zet je Supabase-gegevens in app/.env.local en start de app opnieuw. Zie de README. Tot die tijd
-        bewaart Rondje je runs alleen op deze telefoon.
+        Er zijn geen Supabase-gegevens ingesteld. Rondje bewaart je runs nu alleen op deze telefoon.
       </Text>
     </View>
   );
 }
 
 function SignIn() {
+  const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
-  const [code, setCode] = useState('');
-  const [step, setStep] = useState<'email' | 'code'>('email');
+  const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const cleanEmail = email.trim().toLowerCase();
-  const validEmail = /^\S+@\S+\.\S+$/.test(cleanEmail);
 
-  async function handleSend() {
-    if (!validEmail) {
+  async function submit() {
+    if (!/^\S+@\S+\.\S+$/.test(cleanEmail)) {
       setError('Vul een geldig e-mailadres in.');
+      return;
+    }
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setError(`Je wachtwoord heeft minstens ${MIN_PASSWORD_LENGTH} tekens.`);
       return;
     }
     setBusy(true);
     setError(null);
-    const err = await sendCode(cleanEmail);
+    const err = mode === 'login' ? await signIn(cleanEmail, password) : await signUp(cleanEmail, password);
     setBusy(false);
-    if (err) setError(`Versturen lukte niet. (${err})`);
-    else setStep('code');
+    if (err) setError(err);
   }
 
-  async function handleVerify() {
-    setBusy(true);
-    setError(null);
-    const err = await verifyCode(cleanEmail, code.trim());
-    setBusy(false);
-    if (err) setError(`Die code klopt niet of is verlopen. (${err})`);
-  }
+  const isLogin = mode === 'login';
 
   return (
     <View style={styles.card}>
-      <Text style={styles.title}>Bewaar je rondjes</Text>
+      <Text style={styles.title}>{isLogin ? 'Log in' : 'Maak een account'}</Text>
       <Text style={styles.text}>
-        Log in om je runs veilig op te slaan. Ze blijven bewaard, ook als je van telefoon wisselt.
+        Bewaar je runs veilig online. Ze blijven bewaard, ook als je van telefoon wisselt.
       </Text>
 
-      {step === 'email' ? (
-        <>
-          <TextInput
-            style={styles.input}
-            value={email}
-            onChangeText={setEmail}
-            placeholder="jij@voorbeeld.nl"
-            placeholderTextColor="#8A94A3"
-            autoCapitalize="none"
-            autoComplete="email"
-            keyboardType="email-address"
-            textContentType="emailAddress"
-            returnKeyType="send"
-            onSubmitEditing={handleSend}
-          />
-          <Button label="Stuur inlogcode" onPress={handleSend} busy={busy} small />
-        </>
-      ) : (
-        <>
-          <Text style={styles.text}>
-            We hebben een code gestuurd naar <Text style={styles.strong}>{cleanEmail}</Text>.
-          </Text>
-          <TextInput
-            style={[styles.input, styles.codeInput]}
-            value={code}
-            onChangeText={(t) => setCode(t.replace(/\D/g, ''))}
-            placeholder="123456"
-            placeholderTextColor="#8A94A3"
-            keyboardType="number-pad"
-            textContentType="oneTimeCode"
-            autoComplete="one-time-code"
-            maxLength={8}
-            returnKeyType="done"
-            onSubmitEditing={handleVerify}
-          />
-          <Button label="Inloggen" onPress={handleVerify} busy={busy} small />
-          <Button
-            label="Ander e-mailadres"
-            variant="light"
-            onPress={() => {
-              setStep('email');
-              setCode('');
-              setError(null);
-            }}
-            small
-          />
-        </>
-      )}
+      <TextInput
+        style={styles.input}
+        value={email}
+        onChangeText={setEmail}
+        placeholder="jij@voorbeeld.nl"
+        placeholderTextColor="#8A94A3"
+        autoCapitalize="none"
+        autoComplete="email"
+        keyboardType="email-address"
+        textContentType={isLogin ? 'username' : 'emailAddress'}
+        returnKeyType="next"
+      />
+      <TextInput
+        style={styles.input}
+        value={password}
+        onChangeText={setPassword}
+        placeholder={isLogin ? 'Wachtwoord' : `Wachtwoord (minstens ${MIN_PASSWORD_LENGTH} tekens)`}
+        placeholderTextColor="#8A94A3"
+        secureTextEntry
+        autoCapitalize="none"
+        autoComplete={isLogin ? 'current-password' : 'new-password'}
+        textContentType={isLogin ? 'password' : 'newPassword'}
+        returnKeyType="go"
+        onSubmitEditing={submit}
+      />
+      <Button label={isLogin ? 'Inloggen' : 'Account maken'} onPress={submit} busy={busy} small />
+      <Button
+        label={isLogin ? 'Nog geen account? Maak er een' : 'Al een account? Log in'}
+        variant="light"
+        onPress={() => {
+          setMode(isLogin ? 'signup' : 'login');
+          setError(null);
+        }}
+        small
+      />
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
     </View>
@@ -197,7 +179,6 @@ const styles = StyleSheet.create({
   },
   title: { fontFamily: fonts.kop, fontSize: 22, color: colors.nachtblauw },
   text: { fontFamily: fonts.tekst, fontSize: 15, lineHeight: 21, color: colors.nachtblauw },
-  strong: { fontFamily: fonts.tekstVet },
   input: {
     height: 52,
     borderRadius: 12,
@@ -209,7 +190,6 @@ const styles = StyleSheet.create({
     fontSize: 17,
     color: colors.nachtblauw,
   },
-  codeInput: { fontFamily: fonts.kop, fontSize: 24, letterSpacing: 6, textAlign: 'center' },
   error: {
     fontFamily: fonts.tekst,
     fontSize: 14,
