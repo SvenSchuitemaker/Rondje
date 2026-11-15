@@ -3,11 +3,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, fonts } from '../theme';
 
-export type TabKey = 'run' | 'geschiedenis';
+export type TabKey = 'run' | 'geschiedenis' | 'account';
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'run', label: 'Run' },
   { key: 'geschiedenis', label: 'Geschiedenis' },
+  { key: 'account', label: 'Account' },
 ];
 
 type Props = { active: TabKey; onChange: (key: TabKey) => void };

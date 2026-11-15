@@ -50,6 +50,8 @@ create table public.activities (
   ended_at         timestamptz not null,
   duration_sec     integer not null check (duration_sec >= 0),
   distance_m       double precision not null check (distance_m >= 0),
+  -- Pauzes als [{"start": ms, "end": ms}], tijden in milliseconden sinds 1970.
+  pauses           jsonb not null default '[]'::jsonb,
   created_at       timestamptz not null default now(),
   constraint activities_ended_after_started check (ended_at >= started_at),
   constraint activities_user_source_external_unique unique (user_id, source, external_id)
@@ -70,6 +72,8 @@ create table public.activity_points (
   longitude    double precision not null check (longitude between -180 and 180),
   altitude_m   double precision,
   accuracy_m   double precision,
+  -- Deel van de run tussen twee pauzes; over een pauze heen telt geen afstand.
+  segment      smallint not null default 0,
   constraint activity_points_activity_seq_unique unique (activity_id, seq)
 );
 

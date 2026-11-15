@@ -97,8 +97,32 @@ Locatie testen in de simulator: *Features → Location → City Run*.
 - Tijd per km: het moment van elke kilometergrens wordt geïnterpoleerd tussen de twee GPS-punten eromheen, zonder pauzetijd
 - Route op de kaart met `react-native-maps` (Apple Maps, geen API-sleutel nodig)
 
-## Supabase
+## Supabase (account en synchronisatie)
 
-`supabase/schema.sql` bevat `profiles`, `activities` (met `source`: `own_gps`, `apple_health`, `garmin`, `fit_import`
-en uniek op `user_id + source + external_id`) en `activity_points`, met row level security zodat iedere gebruiker alleen eigen data ziet.
-Uitvoeren in de SQL-editor van je Supabase-project. De app gebruikt dit in fase 1 nog niet.
+Rondje gebruikt het Supabase-project **Rondje** (`qgeudipvgwnwekdtyecj`, regio eu-west-1). Dat is al ingesteld:
+
+- `supabase/schema.sql` is uitgevoerd: tabellen, row level security en policies staan erin
+- Inloggen met e-mailadres en wachtwoord (minstens 8 tekens), zonder bevestigingsmail.
+  Op het gratis plan kan de standaardmail van Supabase niet aangepast worden, en zonder bevestiging hoeft er geen mail verstuurd te worden.
+  Nadeel: iemand kan een account aanmaken met een e-mailadres dat niet van hem is. Zet het terug onder
+  *Authentication → Sign In / Providers → Email → Confirm email*.
+- De project-URL en de **publishable key** staan in `app/src/lib/supabase.ts`. Die sleutel is publiek en mag in de app;
+  de beveiliging zit in row level security. Gebruik in de app **nooit** de secret key of `service_role`.
+
+Een ander project gebruiken? Zet dan in `app/.env.local` (staat in `.gitignore`):
+
+```
+EXPO_PUBLIC_SUPABASE_URL=https://<jouw-project>.supabase.co
+EXPO_PUBLIC_SUPABASE_KEY=<publishable key>
+```
+
+en voer daar `supabase/schema.sql` uit in de SQL Editor. Had je `schema.sql` al eerder uitgevoerd,
+voer dan alleen `supabase/migrations/002_pauzes_en_segmenten.sql` uit.
+
+**Hoe het synchroniseren werkt**
+
+- Na inloggen, na elke opgeslagen run en als je de app opent, of met *Nu synchroniseren*
+- Nieuwe lokale runs gaan naar `activities` en `activity_points` (uniek op gebruiker + bron + `external_id`, dus nooit dubbel)
+- Runs die alleen in Supabase staan, bijvoorbeeld na een herinstallatie, worden opgehaald
+- Een verwijderde run wordt ook uit Supabase verwijderd, zodra er weer verbinding is
+- Row level security zorgt dat iedere gebruiker alleen eigen data ziet

@@ -12,9 +12,11 @@ type Props = {
   refreshKey: number;
   openRunId: string | null;
   onOpenRun: (id: string | null) => void;
+  /** Na verwijderen: wijziging doorzetten naar Supabase. */
+  onChanged?: () => void;
 };
 
-export function HistoryScreen({ visible, refreshKey, openRunId, onOpenRun }: Props) {
+export function HistoryScreen({ visible, refreshKey, openRunId, onOpenRun, onChanged }: Props) {
   const [runs, setRuns] = useState<Run[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -38,6 +40,7 @@ export function HistoryScreen({ visible, refreshKey, openRunId, onOpenRun }: Pro
         onPress: async () => {
           await deleteRun(run.id);
           reload();
+          onChanged?.();
         },
       },
     ]);
@@ -51,6 +54,7 @@ export function HistoryScreen({ visible, refreshKey, openRunId, onOpenRun }: Pro
         onDeleted={() => {
           onOpenRun(null);
           reload();
+          onChanged?.();
         }}
       />
     );
